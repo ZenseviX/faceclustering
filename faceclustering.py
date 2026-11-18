@@ -1,12 +1,13 @@
 """Face-image clustering with memory-efficient Fuzzy C-Means.
 
 Install: pip install numpy opencv-python matplotlib
-Run: python faceclustering_optimized.py --dataset Dataset --clusters 3
+Run: python faceclustering.py --dataset Dataset --clusters 3
 """
 
 from __future__ import annotations
 
 import argparse
+import csv
 from pathlib import Path
 
 import cv2
@@ -66,8 +67,11 @@ def fuzzy_c_means(
         raise ValueError("fuzziness ต้องมากกว่า 1")
     if not np.isfinite(tolerance) or tolerance <= 0:
         raise ValueError("tolerance ต้องมากกว่า 0")
-    if max_iterations < 1:
+    if not isinstance(max_iterations, (int, np.integer)) or max_iterations < 1:
         raise ValueError("max_iterations ต้องมากกว่า 0")
+
+    if clusters == 1:
+        return x.mean(axis=0, keepdims=True), np.ones((len(x), 1), dtype=np.float64)
 
     rng = np.random.default_rng(seed)
     membership = rng.random((len(x), clusters))
@@ -78,9 +82,16 @@ def fuzzy_c_means(
     def calculate_centers(u: np.ndarray) -> np.ndarray:
         weights = u ** fuzziness
         denom = weights.sum(axis=0)
-        return (weights.T @ x) / denom[:, None]
+        centers = np.empty((clusters, x.shape[1]), dtype=np.float64)
+        active = denom > 1e-300
+        if active.any():
+            centers[active] = (weights[:, active].T @ x) / denom[active, None]
+        if (~active).any():
+            # Avoid NaNs when a cluster receives essentially zero weight.
+            centers[~active] = x.mean(axis=0)
+        return centers
 
-    for iteration in range(max_iterations):
+    for _ in range(max_iterations):
         centers = calculate_centers(membership)
         # O(N*C) auxiliary memory rather than O(N*C*D).
         dist2 = x_norm2 + np.einsum("ij,ij->i", centers, centers)[None, :] - 2.0 * (x @ centers.T)
@@ -120,22 +131,30 @@ def fuzzy_c_means(
     return calculate_centers(membership), membership
 
 
-def show_results(images, filenames, labels, cluster_count: int, save_path: Path | None = None, show: bool = True):
+def show_results(
+    images, filenames, labels, cluster_count: int,
+    save_path: Path | None = None, show: bool = True, max_preview: int = 60,
+):
     if not images:
         raise ValueError("ไม่มีภาพสำหรับแสดงผล")
+    if max_preview < 1:
+        raise ValueError("max_preview ต้องมากกว่า 0")
+    display_count = min(len(images), max_preview)
     columns = min(max(cluster_count, 1), 3)
-    rows = (len(images) + columns - 1) // columns
+    rows = (display_count + columns - 1) // columns
     figure, axes = plt.subplots(rows, columns, figsize=(columns * 4, rows * 3), squeeze=False)
 
     for index, axis in enumerate(axes.flat):
         axis.axis("off")
-        if index < len(images):
+        if index < display_count:
             group = int(labels[index]) + 1
             print(f"{filenames[index]} -> Cluster {group}")
             axis.imshow(images[index], cmap="gray", vmin=0, vmax=255)
             axis.set_title(f"{filenames[index]}\nCluster {group}")
 
     figure.tight_layout()
+    if len(images) > max_preview:
+        print(f"แสดงตัวอย่าง {max_preview}/{len(images)} ภาพ; รายการทั้งหมดอยู่ใน CSV")
     if save_path is not None:
         target = Path(save_path)
         target.parent.mkdir(parents=True, exist_ok=True)
@@ -146,6 +165,22 @@ def show_results(images, filenames, labels, cluster_count: int, save_path: Path 
     plt.close(figure)
 
 
+def export_assignments(path: Path, filenames, membership: np.ndarray) -> None:
+    """Export each image label and per-cluster membership to UTF-8 CSV."""
+    if len(filenames) != len(membership):
+        raise ValueError("จำนวนชื่อภาพไม่ตรงกับ membership")
+    target = Path(path)
+    target.parent.mkdir(parents=True, exist_ok=True)
+    with target.open("w", newline="", encoding="utf-8-sig") as output:
+        writer = csv.writer(output)
+        writer.writerow(["filename", "cluster", "confidence",
+                         *[f"membership_{i + 1}" for i in range(membership.shape[1])]])
+        for filename, probabilities in zip(filenames, membership):
+            label = int(np.argmax(probabilities))
+            writer.writerow([filename, label + 1, f"{probabilities[label]:.8f}",
+                             *[f"{value:.8f}" for value in probabilities]])
+
+
 def main():
     parser = argparse.ArgumentParser(description="Cluster face images using Fuzzy C-Means")
     parser.add_argument("--dataset", type=Path, default=Path(__file__).resolve().parent / "Dataset")
@@ -154,17 +189,27 @@ def main():
     parser.add_argument("--height", type=int, default=32)
     parser.add_argument("--seed", type=int, default=42)
     parser.add_argument("--max-iterations", type=int, default=300)
+    parser.add_argument("--fuzziness", type=float, default=2.0)
+    parser.add_argument("--tolerance", type=float, default=1e-5)
+    parser.add_argument("--csv", type=Path, help="Save cluster assignments to CSV")
+    parser.add_argument("--max-preview", type=int, default=60, help="Maximum images in montage")
     parser.add_argument("--save", type=Path, help="Save montage image (PNG, etc.)")
     parser.add_argument("--no-show", action="store_true", help="Do not open a plot window")
     args = parser.parse_args()
 
     images, filenames, data = read_dataset(args.dataset, (args.width, args.height))
     centers, membership = fuzzy_c_means(
-        data, clusters=args.clusters, seed=args.seed, max_iterations=args.max_iterations
+        data, clusters=args.clusters, seed=args.seed, max_iterations=args.max_iterations,
+        fuzziness=args.fuzziness, tolerance=args.tolerance
     )
     labels = np.argmax(membership, axis=1)
     print(f"ภาพทั้งหมด {len(images)} ภาพ, {len(centers)} กลุ่ม")
-    show_results(images, filenames, labels, args.clusters, args.save, show=not args.no_show)
+    if args.csv is not None:
+        export_assignments(args.csv, filenames, membership)
+        print(f"บันทึกผล CSV: {args.csv}")
+    if args.save is not None or not args.no_show:
+        show_results(images, filenames, labels, args.clusters, args.save,
+                     show=not args.no_show, max_preview=args.max_preview)
 
 
 if __name__ == "__main__":
