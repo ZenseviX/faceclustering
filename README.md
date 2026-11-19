@@ -12,18 +12,18 @@ Python 3.10+ is recommended. Install:
 python -m pip install -r requirements.txt
 ```
 
-Put your own `.jpg`, `.jpeg`, `.png`, or `.bmp` images in a `Dataset/` folder beside `faceclustering.py`. Images are not included in this package.
+Put your own `.jpg`, `.jpeg`, `.png`, or `.bmp` images in a `data/` folder beside `faceclustering.py` (this is the default `--dataset` path).
 
 ## Run
 
 ```powershell
-python faceclustering.py --dataset Dataset --clusters 3
+python faceclustering.py --dataset data --clusters 3
 ```
 
 Run without opening a graph window, and save CSV plus a result image:
 
 ```powershell
-python faceclustering.py --dataset Dataset --clusters 3 --csv results/clusters.csv --save results/montage.png --no-show
+python faceclustering.py --dataset data --clusters 3 --csv results/clusters.csv --save results/montage.png --no-show
 ```
 
 Additional options: `--width`, `--height`, `--seed`, `--fuzziness`, `--tolerance`, `--max-iterations`, `--max-preview`, `--save`, `--csv`, `--no-show`. Use `python faceclustering.py --help` for help.
@@ -41,7 +41,7 @@ python -m unittest discover -s tests -v
 - Memory-efficient matrix squared distances instead of materializing an `images × clusters × pixels` distance tensor.
 - Robust normalization, near-zero distance handling, and an explicit one-cluster fast path.
 - Protection against zero-weight cluster division in center calculations.
-- Input and parameter validation, deterministic seed, readable errors for missing Dataset.
+- Input and parameter validation, deterministic seed, readable errors for missing dataset folder.
 - Configurable membership CSV output and optional visualization; cap montage size to avoid enormous figures.
 
 Performance improvement depends on dataset size and hardware; no speedup percentage is claimed without a paired benchmark.
