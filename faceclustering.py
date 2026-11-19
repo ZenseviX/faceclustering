@@ -1,7 +1,7 @@
 """Face-image clustering with memory-efficient Fuzzy C-Means.
 
 Install: pip install numpy opencv-python matplotlib
-Run: python faceclustering.py --dataset Dataset --clusters 3
+Run: python faceclustering.py --dataset data --clusters 3
 """
 
 from __future__ import annotations
@@ -21,7 +21,7 @@ def read_dataset(directory: Path, size: tuple[int, int] = (32, 32)):
     """Load grayscale images and normalized float32 feature vectors."""
     directory = Path(directory)
     if not directory.is_dir():
-        raise FileNotFoundError(f"ไม่พบโฟลเดอร์ Dataset: {directory}")
+        raise FileNotFoundError(f"ไม่พบโฟลเดอร์ข้อมูลภาพ: {directory}")
     if len(size) != 2 or any(x <= 0 for x in size):
         raise ValueError("size ต้องเป็น (width, height) ที่มากกว่า 0")
 
@@ -183,7 +183,7 @@ def export_assignments(path: Path, filenames, membership: np.ndarray) -> None:
 
 def main():
     parser = argparse.ArgumentParser(description="Cluster face images using Fuzzy C-Means")
-    parser.add_argument("--dataset", type=Path, default=Path(__file__).resolve().parent / "Dataset")
+    parser.add_argument("--dataset", type=Path, default=Path(__file__).resolve().parent / "data")
     parser.add_argument("--clusters", type=int, default=3)
     parser.add_argument("--width", type=int, default=32)
     parser.add_argument("--height", type=int, default=32)
